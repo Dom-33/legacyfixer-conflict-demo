@@ -1,0 +1,66 @@
+name: Dependabot benchmark resolver validation
+on:
+  push:
+    branches:
+      - bench/dependency-bots-20261009
+permissions:
+  contents: read
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: conflict-baseline
+            deps: "requests==2.19.0 urllib3==2.0.0"
+            expected: invalid
+          - case: conflict-urllib3-only
+            deps: "requests==2.19.0 urllib3==2.8.0"
+            expected: invalid
+          - case: conflict-requests-only
+            deps: "requests==2.34.2 urllib3==2.0.0"
+            expected: valid
+          - case: hell-baseline
+            deps: "requests==2.19.1 urllib3==2.0.0"
+            expected: invalid
+          - case: hell-urllib3-only
+            deps: "requests==2.19.1 urllib3==2.8.0"
+            expected: invalid
+          - case: hell-requests-only
+            deps: "requests==2.34.2 urllib3==2.0.0"
+            expected: valid
+          - case: granularity-original
+            deps: "urllib3==1.25.8"
+            expected: valid
+          - case: granularity-legacyfixer
+            deps: "urllib3==2.7.0"
+            expected: valid
+          - case: granularity-dependabot
+            deps: "urllib3==2.8.0"
+            expected: valid
+    name: "${{ matrix.case }}"
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Check pip resolver without installing
+        env:
+          DEPS: ${{ matrix.deps }}
+          EXPECTED: ${{ matrix.expected }}
+          CASE: ${{ matrix.case }}
+        shell: bash
+        run: |
+          printf '%s\n' $DEPS > "$RUNNER_TEMP/benchmark-requirements.txt"
+          set +e
+          python -m pip install --dry-run --ignore-installed --disable-pip-version-check --no-input -r "$RUNNER_TEMP/benchmark-requirements.txt" > "$RUNNER_TEMP/pip-out.txt" 2>&1
+          actual_exit=$?
+          set -e
+          cat "$RUNNER_TEMP/pip-out.txt"
+          if [ "$actual_exit" -eq 0 ]; then actual=valid; else actual=invalid; fi
+          echo "BENCHMARK_RESULT case=$CASE expected=$EXPECTED actual=$actual pip_exit=$actual_exit"
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Resolver outcome differs from expected"
+            exit 1
+          fi
